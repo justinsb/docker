@@ -494,7 +494,7 @@ func (container *Container) Start() error {
 		"-n", container.ID,
 		"-f", container.lxcConfigPath(),
 		"--",
-		"/sbin/init",
+		"/.dockerinit",
 	}
 
 	// Networking
