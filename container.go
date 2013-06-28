@@ -700,7 +700,8 @@ func (container *Container) StderrPipe() (io.ReadCloser, error) {
 
 func (container *Container) allocateNetwork() error {
 	if container.NetworkSettings != nil && container.NetworkSettings.IPAddress != "" {
-		// Externally assigned IP addresses
+		utils.Debugf("Using externally assigned IP addresses: %v", container.NetworkSettings)
+
 		if container.NetworkSettings.Bridge == "" {
 			container.NetworkSettings.Bridge = container.runtime.networkManager.bridgeIface
 		}
