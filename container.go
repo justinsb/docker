@@ -498,7 +498,7 @@ func (container *Container) Start() error {
 	}
 
 	// Networking
-	params = append(params, "-g", container.network.IPs[0].Gateway.String())
+	params = append(params, "-g", container.NetworkSettings.Gateway)
 
 	// User
 	if container.Config.User != "" {
@@ -596,6 +596,14 @@ func (container *Container) StderrPipe() (io.ReadCloser, error) {
 }
 
 func (container *Container) allocateNetwork() error {
+	if container.NetworkSettings != nil && container.NetworkSettings.IPAddress != "" {
+		// Externally assigned IP addresses
+		if container.NetworkSettings.Bridge == "" {
+			container.NetworkSettings.Bridge = container.runtime.networkManager.bridgeIface
+		}
+		return nil
+	}
+
 	iface, err := container.runtime.networkManager.Allocate()
 	if err != nil {
 		return err
@@ -626,8 +634,10 @@ func (container *Container) allocateNetwork() error {
 }
 
 func (container *Container) releaseNetwork() {
-	container.network.Release()
-	container.network = nil
+	if container.network != nil {
+		container.network.Release()
+		container.network = nil
+	}
 	container.NetworkSettings = &NetworkSettings{}
 }
 
