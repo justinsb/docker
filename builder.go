@@ -64,6 +64,11 @@ func (builder *Builder) Create(config *Config) (*Container, error) {
 		// FIXME: do we need to store this in the container?
 		SysInitPath: sysInitPath,
 	}
+
+	if config.NetworkSettings != nil {
+		container.NetworkSettings = config.NetworkSettings
+	}
+
 	container.root = builder.runtime.containerRoot(container.ID)
 	// Step 1: create the container directory.
 	// This doubles as a barrier to avoid race conditions.
