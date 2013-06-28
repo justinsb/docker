@@ -78,10 +78,10 @@ func (r *progressReader) Read(p []byte) (n int, err error) {
 	read, err := io.ReadCloser(r.reader).Read(p)
 	r.readProgress += read
 
-	updateEvery := 4096
+	updateEvery := 1024*512 //512kB
 	if r.readTotal > 0 {
-		// Only update progress for every 1% read
-		if increment := int(0.01 * float64(r.readTotal)); increment > updateEvery {
+		// Update progress for every 1% read if 1% < 512kB
+		if increment := int(0.01 * float64(r.readTotal)); increment < updateEvery {
 			updateEvery = increment
 		}
 	}
@@ -528,7 +528,9 @@ func GetKernelVersion() (*KernelVersionInfo, error) {
 	}
 
 	if len(tmp2) > 2 {
-		minor, err = strconv.Atoi(tmp2[2])
+		// Removes "+" because git kernels might set it
+		minorUnparsed := strings.Trim(tmp2[2], "+")
+		minor, err = strconv.Atoi(minorUnparsed)
 		if err != nil {
 			return nil, err
 		}
