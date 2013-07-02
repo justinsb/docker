@@ -19,25 +19,25 @@ import (
 
 func TestGetBoolParam(t *testing.T) {
 	if ret, err := getBoolParam("true"); err != nil || !ret {
-		t.Fatalf("true -> true, nil | got %b %s", ret, err)
+		t.Fatalf("true -> true, nil | got %t %s", ret, err)
 	}
 	if ret, err := getBoolParam("True"); err != nil || !ret {
-		t.Fatalf("True -> true, nil | got %b %s", ret, err)
+		t.Fatalf("True -> true, nil | got %t %s", ret, err)
 	}
 	if ret, err := getBoolParam("1"); err != nil || !ret {
-		t.Fatalf("1 -> true, nil | got %b %s", ret, err)
+		t.Fatalf("1 -> true, nil | got %t %s", ret, err)
 	}
 	if ret, err := getBoolParam(""); err != nil || ret {
-		t.Fatalf("\"\" -> false, nil | got %b %s", ret, err)
+		t.Fatalf("\"\" -> false, nil | got %t %s", ret, err)
 	}
 	if ret, err := getBoolParam("false"); err != nil || ret {
-		t.Fatalf("false -> false, nil | got %b %s", ret, err)
+		t.Fatalf("false -> false, nil | got %t %s", ret, err)
 	}
 	if ret, err := getBoolParam("0"); err != nil || ret {
-		t.Fatalf("0 -> false, nil | got %b %s", ret, err)
+		t.Fatalf("0 -> false, nil | got %t %s", ret, err)
 	}
 	if ret, err := getBoolParam("faux"); err == nil || ret {
-		t.Fatalf("faux -> false, err | got %b %s", ret, err)
+		t.Fatalf("faux -> false, err | got %t %s", ret, err)
 	}
 }
 
@@ -112,6 +112,11 @@ func TestGetInfo(t *testing.T) {
 
 	srv := &Server{runtime: runtime}
 
+	initialImages, err := srv.runtime.graph.All()
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	r := httptest.NewRecorder()
 
 	if err := getInfo(srv, APIVERSION, r, nil, nil); err != nil {
@@ -123,8 +128,8 @@ func TestGetInfo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if infos.Images != 1 {
-		t.Errorf("Excepted images: %d, %d found", 1, infos.Images)
+	if infos.Images != len(initialImages) {
+		t.Errorf("Excepted images: %d, %d found", len(initialImages), infos.Images)
 	}
 }
 
@@ -136,6 +141,11 @@ func TestGetImagesJSON(t *testing.T) {
 	defer nuke(runtime)
 
 	srv := &Server{runtime: runtime}
+
+	initialImages, err := srv.Images(true, "")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// all=0
 	req, err := http.NewRequest("GET", "/images/json?all=0", nil)
@@ -154,12 +164,19 @@ func TestGetImagesJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(images) != 1 {
-		t.Errorf("Excepted 1 image, %d found", len(images))
+	if len(images) != len(initialImages) {
+		t.Errorf("Excepted %d image, %d found", len(initialImages), len(images))
 	}
 
-	if images[0].Repository != unitTestImageName {
-		t.Errorf("Excepted image %s, %s found", unitTestImageName, images[0].Repository)
+	found := false
+	for _, img := range images {
+		if img.Repository == unitTestImageName {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Excepted image %s, %+v found", unitTestImageName, images)
 	}
 
 	r2 := httptest.NewRecorder()
@@ -179,18 +196,25 @@ func TestGetImagesJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(images2) != 1 {
-		t.Errorf("Excepted 1 image, %d found", len(images2))
+	if len(images2) != len(initialImages) {
+		t.Errorf("Excepted %d image, %d found", len(initialImages), len(images2))
 	}
 
-	if images2[0].ID != GetTestImage(runtime).ID {
-		t.Errorf("Retrieved image Id differs, expected %s, received %s", GetTestImage(runtime).ID, images2[0].ID)
+	found = false
+	for _, img := range images2 {
+		if img.ID == GetTestImage(runtime).ID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Retrieved image Id differs, expected %s, received %+v", GetTestImage(runtime).ID, images2)
 	}
 
 	r3 := httptest.NewRecorder()
 
 	// filter=a
-	req3, err := http.NewRequest("GET", "/images/json?filter=a", nil)
+	req3, err := http.NewRequest("GET", "/images/json?filter=aaaaaaaaaa", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +229,7 @@ func TestGetImagesJSON(t *testing.T) {
 	}
 
 	if len(images3) != 0 {
-		t.Errorf("Excepted 1 image, %d found", len(images3))
+		t.Errorf("Excepted 0 image, %d found", len(images3))
 	}
 
 	r4 := httptest.NewRecorder()
@@ -873,7 +897,8 @@ func TestPostContainersKill(t *testing.T) {
 	}
 	defer runtime.Destroy(container)
 
-	if err := container.Start(); err != nil {
+	hostConfig := &HostConfig{}
+	if err := container.Start(hostConfig); err != nil {
 		t.Fatal(err)
 	}
 
@@ -917,7 +942,8 @@ func TestPostContainersRestart(t *testing.T) {
 	}
 	defer runtime.Destroy(container)
 
-	if err := container.Start(); err != nil {
+	hostConfig := &HostConfig{}
+	if err := container.Start(hostConfig); err != nil {
 		t.Fatal(err)
 	}
 
@@ -973,8 +999,15 @@ func TestPostContainersStart(t *testing.T) {
 	}
 	defer runtime.Destroy(container)
 
+	hostConfigJSON, err := json.Marshal(&HostConfig{})
+
+	req, err := http.NewRequest("POST", "/containers/"+container.ID+"/start", bytes.NewReader(hostConfigJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	r := httptest.NewRecorder()
-	if err := postContainersStart(srv, APIVERSION, r, nil, map[string]string{"name": container.ID}); err != nil {
+	if err := postContainersStart(srv, APIVERSION, r, req, map[string]string{"name": container.ID}); err != nil {
 		t.Fatal(err)
 	}
 	if r.Code != http.StatusNoContent {
@@ -989,7 +1022,7 @@ func TestPostContainersStart(t *testing.T) {
 	}
 
 	r = httptest.NewRecorder()
-	if err = postContainersStart(srv, APIVERSION, r, nil, map[string]string{"name": container.ID}); err == nil {
+	if err = postContainersStart(srv, APIVERSION, r, req, map[string]string{"name": container.ID}); err == nil {
 		t.Fatalf("A running containter should be able to be started")
 	}
 
@@ -1019,7 +1052,8 @@ func TestPostContainersStop(t *testing.T) {
 	}
 	defer runtime.Destroy(container)
 
-	if err := container.Start(); err != nil {
+	hostConfig := &HostConfig{}
+	if err := container.Start(hostConfig); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1068,7 +1102,8 @@ func TestPostContainersWait(t *testing.T) {
 	}
 	defer runtime.Destroy(container)
 
-	if err := container.Start(); err != nil {
+	hostConfig := &HostConfig{}
+	if err := container.Start(hostConfig); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1113,7 +1148,8 @@ func TestPostContainersAttach(t *testing.T) {
 	defer runtime.Destroy(container)
 
 	// Start the process
-	if err := container.Start(); err != nil {
+	hostConfig := &HostConfig{}
+	if err := container.Start(hostConfig); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1298,6 +1334,11 @@ func TestDeleteImages(t *testing.T) {
 
 	srv := &Server{runtime: runtime}
 
+	initialImages, err := srv.Images(false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	if err := srv.runtime.repositories.Set("test", "test", unitTestImageName, true); err != nil {
 		t.Fatal(err)
 	}
@@ -1307,8 +1348,8 @@ func TestDeleteImages(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(images) != 2 {
-		t.Errorf("Excepted 2 images, %d found", len(images))
+	if len(images) != len(initialImages)+1 {
+		t.Errorf("Excepted %d images, %d found", len(initialImages)+1, len(images))
 	}
 
 	req, err := http.NewRequest("DELETE", "/images/test:test", nil)
@@ -1336,8 +1377,8 @@ func TestDeleteImages(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(images) != 1 {
-		t.Errorf("Excepted 1 image, %d found", len(images))
+	if len(images) != len(initialImages) {
+		t.Errorf("Excepted %d image, %d found", len(initialImages), len(images))
 	}
 
 	/*	if c := runtime.Get(container.Id); c != nil {
